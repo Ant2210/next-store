@@ -4,7 +4,7 @@ import db from '@/utils/db';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@clerk/nextjs/server';
 import { imageSchema, productSchema, validateWithZodSchema } from './schema';
-import { uploadImage } from './supabase';
+import { deleteImage, uploadImage } from './supabase';
 import { revalidatePath } from 'next/cache';
 
 const getAuthUser = async () => {
@@ -100,14 +100,148 @@ export const deleteProductAction = async (prevState: { productId: string }) => {
 	const { productId } = prevState;
 	await getAminUser();
 	try {
-		await db.product.delete({
+		const product = await db.product.delete({
 			where: {
 				id: productId,
 			},
 		});
+		await deleteImage(product.image);
 		revalidatePath('admin/products');
 		return { message: 'Product removed.' };
 	} catch (error) {
 		return renderError(error);
 	}
+};
+
+export const fetchAdminProductDetails = async (productId: string) => {
+	await getAminUser();
+	const product = await db.product.findUnique({
+		where: {
+			id: productId,
+		},
+	});
+	if (!product) redirect('/admin/products');
+	return product;
+};
+
+export const updateProductAction = async (
+	prevState: unknown,
+	formData: FormData,
+) => {
+	await getAminUser();
+
+	try {
+		const productId = formData.get('id') as string;
+		const rawData = Object.fromEntries(formData);
+		const validatedFields = validateWithZodSchema(productSchema, rawData);
+
+		await db.product.update({
+			where: {
+				id: productId,
+			},
+			data: {
+				...validatedFields,
+			},
+		});
+
+		revalidatePath(`/admin/products/${productId}/edit`);
+		return { message: 'Product updated successfully.' };
+	} catch (error) {
+		return renderError(error);
+	}
+};
+
+export const updateProductImageAction = async (
+	prevState: unknown,
+	formData: FormData,
+) => {
+	await getAminUser();
+
+	try {
+		const image = formData.get('image') as File;
+		const productId = formData.get('id') as string;
+		const oldImageUrl = formData.get('url') as string;
+
+		const validatedFile = validateWithZodSchema(imageSchema, { image });
+		const fullPath = await uploadImage(validatedFile.image);
+
+		await deleteImage(oldImageUrl);
+		await db.product.update({
+			where: {
+				id: productId,
+			},
+			data: {
+				image: fullPath,
+			},
+		});
+		revalidatePath(`/admin/products/${productId}/edit`);
+		return { message: 'Product image updated successfully.' };
+	} catch (error) {
+		return renderError(error);
+	}
+};
+
+export const fetchFavouriteId = async ({
+	productId,
+}: {
+	productId: string;
+}) => {
+	const user = await getAuthUser();
+	const favourite = await db.favourite.findFirst({
+		where: {
+			productId,
+			clerkId: user.id,
+		},
+		select: {
+			id: true,
+		},
+	});
+	return favourite?.id || null;
+};
+
+export const toggleFavouriteAction = async (prevState: {
+	productId: string;
+	favouriteId: string | null;
+	pathname: string;
+}) => {
+	const user = await getAuthUser();
+	const { productId, favouriteId, pathname } = prevState;
+
+	try {
+		if (favouriteId) {
+			await db.favourite.delete({
+				where: {
+					id: favouriteId,
+				},
+			});
+		} else {
+			await db.favourite.create({
+				data: {
+					productId,
+					clerkId: user.id,
+				},
+			});
+		}
+		revalidatePath(pathname);
+		return {
+			message: favouriteId
+				? 'Removed from favourites.'
+				: 'Added to favourites.',
+		};
+	} catch (error) {
+		return renderError(error);
+	}
+};
+
+export const fetchUserFavourites = async () => {
+	const user = await getAuthUser();
+	const favourites = await db.favourite.findMany({
+		where: {
+			clerkId: user.id,
+		},
+		include: {
+			product: true,
+		},
+	});
+	return favourites;
 };
