@@ -1,15 +1,22 @@
-import BreadCrumbs from "@/components/single-product/BreadCrumbs";
-import {fetchSingleProduct} from "@/utils/actions";
-import Image from "next/image";
-import {formatCurrency} from "@/utils/format";
-import FavouriteToggleButton from "@/components/products/FavouriteToggleButton";
-import AddToCart from "@/components/single-product/AddToCart";
-import ProductRating from "@/components/single-product/ProductRating";
+import BreadCrumbs from '@/components/single-product/BreadCrumbs';
+import { fetchSingleProduct, findExistingReview } from '@/utils/actions';
+import Image from 'next/image';
+import { formatCurrency } from '@/utils/format';
+import FavouriteToggleButton from '@/components/products/FavouriteToggleButton';
+import AddToCart from '@/components/single-product/AddToCart';
+import ProductRating from '@/components/single-product/ProductRating';
+import ShareButton from '@/components/single-product/ShareButton';
+import SubmitReview from '@/components/reviews/SubmitReview';
+import ProductReviews from '@/components/reviews/ProductReviews';
+import { auth } from '@clerk/nextjs/server';
 
-const SingleProductPage = async ({params}: {params: {id: string}}) => {
+const SingleProductPage = async ({ params }: { params: { id: string } }) => {
 	const product = await fetchSingleProduct(params.id);
-	const {name, image, company, description, price} = product;
+	const { name, image, company, description, price } = product;
 	const poundAmount = formatCurrency(price);
+	const { userId } = auth();
+	const reviewDoesNotExist =
+		userId && !(await findExistingReview(userId, product.id));
 
 	return (
 		<section>
@@ -30,7 +37,10 @@ const SingleProductPage = async ({params}: {params: {id: string}}) => {
 				<div>
 					<div className="flex gap-x-8 items-center">
 						<h1 className="capitalize text-3xl font-bold">{name}</h1>
-						<FavouriteToggleButton productId={params.id} />
+						<div className="flex items-center gap-x-2">
+							<FavouriteToggleButton productId={params.id} />
+							<ShareButton name={product.name} productId={params.id} />
+						</div>
 					</div>
 					<ProductRating productId={params.id} />
 					<h4 className="text-xl mt-2">{company}</h4>
@@ -41,6 +51,8 @@ const SingleProductPage = async ({params}: {params: {id: string}}) => {
 					<AddToCart productId={params.id} />
 				</div>
 			</div>
+			<ProductReviews productId={params.id} />
+			{reviewDoesNotExist && <SubmitReview productId={params.id} />}
 		</section>
 	);
 };
